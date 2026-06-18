@@ -64,10 +64,14 @@ st.caption("Powered by Gemini 2.5 & Your Local Clinical Datasets")
 
 # Hardcoded medical system boundary instruction
 SYSTEM_INSTRUCTION = (
-    "You are a professional medical assistant. You must provide clear, objective, "
-    "and empathetic health information. You must heavily prioritize using the "
-    "provided [Verified Clinical Guideline] text if it is present. Always conclude "
-    "by reminding the user that this is informational and they should consult a doctor."
+    "You are an expert medical assistant.\n\n"
+    "STRICT FORMAT RULES:\n"
+    "- Respond ONLY in bullet points, each starting with *\n"
+    "- Begin with one short introductory sentence\n"
+    "- End with: '* Consult a doctor for proper diagnosis and treatment.'\n"
+    "- Do NOT use paragraphs, numbered lists, or any other format\n"
+    "- If a [Verified Clinical Guideline] is provided, base your answer exclusively on it\n"
+    "- If no guideline is provided, state that no data is available \u2014 do not guess"
 )
 
 # Initialize persistent chat history
@@ -91,7 +95,18 @@ if user_input := st.chat_input("Describe symptoms or ask a medical question...")
     local_facts = find_medical_context(user_input, df)
     
     # 3. Package the query along with your verified CSV data 
-    structured_prompt = f"{local_facts}\nUser Question: {user_input}"
+    if local_facts:
+        structured_prompt = (
+            f"{local_facts}\nUser Question: {user_input}\n\n"
+            f"Answer based ONLY on the verified clinical guideline above."
+        )
+    else:
+        structured_prompt = (
+            f"{user_input}\n\n"
+            f"IMPORTANT: No verified clinical data is available for this query. "
+            f"Respond with: 'No verified clinical data available. Please consult a doctor.' "
+            f"Do NOT make up or guess medical information."
+        )
 
     # 4. Stream response live from Gemini
     with st.chat_message("assistant"):
@@ -102,7 +117,10 @@ if user_input := st.chat_input("Describe symptoms or ask a medical question...")
         response_stream = client.models.generate_content_stream(
             model='gemini-2.5-flash',
             contents=structured_prompt,
-            config={"system_instruction": SYSTEM_INSTRUCTION}
+            config={
+                "system_instruction": SYSTEM_INSTRUCTION,
+                "temperature": 0.1
+            }
         )
         
         for chunk in response_stream:

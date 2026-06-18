@@ -42,13 +42,16 @@ def get_embedding(text: str) -> list:
 
 def find_semantic_context(user_query, threshold=0.75):
     user_vector = get_embedding(user_query)
-    if not user_vector or collection.count() == 0: return ""
-    results = collection.query(query_embeddings=[user_vector], n_results=1)
+    if not user_vector or collection.count() == 0:
+        return []
+    results = collection.query(query_embeddings=[user_vector], n_results=3)
     if results and results['distances'] and len(results['distances'][0]) > 0:
-        distance = results['distances'][0][0]
-        if (1.0 - distance) >= threshold:
-            return results['documents'][0][0]
-    return ""
+        contexts = []
+        for distance, doc in zip(results['distances'][0], results['documents'][0]):
+            if (1.0 - distance) >= threshold:
+                contexts.append(doc)
+        return contexts
+    return []
 
 class ChatMessageSchema(BaseModel):
     content: str
@@ -69,7 +72,7 @@ async def chat_endpoint(request: ChatRequest):
         )
     except Exception as embedding_error:
         print(f"Embedding rate limit hit: {embedding_error}")
-        local_fact = "" 
+        local_fact = []
 
     gemini_history = []
     for msg in request.history:
@@ -78,16 +81,29 @@ async def chat_endpoint(request: ChatRequest):
         gemini_history.append(types.Content(role=role, parts=[types.Part.from_text(text=msg.content)]))
 
     if local_fact:
-        prompt_content = f"Reference: {local_fact}\n\nUser Query: {user_input}"
+        context_str = "\n".join(f"- {c}" for c in local_fact)
+        prompt_content = (
+            f"Verified Clinical References:\n{context_str}\n\n"
+            f"User Query: {user_input}\n\n"
+            f"Answer based ONLY on the verified references above."
+        )
     else:
-        prompt_content = user_input
+        prompt_content = (
+            f"{user_input}\n\n"
+            f"IMPORTANT: No verified clinical data is available for this query. "
+            f"Respond with: 'No verified clinical data available. Please consult a doctor.' "
+            f"Do NOT make up or guess medical information."
+        )
 
     SYSTEM_INSTRUCTION = (
-        "You are an expert, professional medical assistant. You must provide clear health insights.\n\n"
-        "CRITICAL RESPONSE FORMAT LIMITATIONS:\n"
-        "1. You must respond exclusively using clear, bulleted pointers (*) for all core clinical data, steps, symptoms, and self-care directions.\n"
-        "2. Your answer must feature a brief, professional introductory sentence.\n"
-        "3. Conclude with a standalone disclaimer reminding the user to seek an immediate clinical doctor evaluation."
+        "You are an expert medical assistant.\n\n"
+        "STRICT FORMAT RULES:\n"
+        "- Respond ONLY in bullet points, each starting with *\n"
+        "- Begin with one short introductory sentence\n"
+        "- End with: '* Consult a doctor for proper diagnosis and treatment.'\n"
+        "- Do NOT use paragraphs, numbered lists, or any other format\n"
+        "- If Verified References are provided, base your answer exclusively on them\n"
+        "- If no references are provided, state that no data is available \u2014 do not guess"
     )
 
     async def event_generator():
@@ -101,7 +117,7 @@ async def chat_endpoint(request: ChatRequest):
                     history=gemini_history,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_INSTRUCTION,
-                        temperature=0.2
+                        temperature=0.1
                     )
                 )
                 response_stream = chat.send_message_stream(prompt_content)
