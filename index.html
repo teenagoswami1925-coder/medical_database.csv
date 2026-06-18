@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clinical AI Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .prose p { margin-bottom: 0.75rem; }
+        .prose p:last-child { margin-bottom: 0; }
+        .prose ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+        .prose strong { font-weight: 700; color: inherit; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans h-screen flex overflow-hidden">
+
+    <aside class="w-64 bg-slate-900 text-slate-200 flex flex-col h-full border-r border-slate-800 shrink-0 z-20">
+        <div class="p-4 border-b border-slate-800">
+            <button onclick="createNewChat()" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-medium py-2.5 px-4 rounded-xl text-sm transition flex items-center justify-center space-x-2 shadow-sm">
+                <span>➕</span> <span>New Chat</span>
+            </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-3 space-y-1" id="history-list"></div>
+        <div class="p-4 bg-slate-950 border-t border-slate-800 text-center text-xs text-slate-500">
+            v1.5 Realtime Stream Engine
+        </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col h-full overflow-hidden">
+        
+        <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center shadow-sm z-10 shrink-0">
+            <div class="bg-teal-500 text-white p-2 rounded-xl mr-3">👑</div>
+            <div>
+                <h1 class="text-lg font-bold text-slate-800">Clinical AI Assistant</h1>
+                <p class="text-xs text-emerald-600 font-medium">Streaming Engine Connected to FastAPI & Gemini</p>
+            </div>
+        </header>
+
+        <main id="chat-box" class="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl w-full mx-auto content-start">
+            </main>
+
+        <footer class="bg-white border-t border-slate-200 px-4 py-4 shadow-md shrink-0 z-10">
+            <div class="max-w-4xl mx-auto space-y-3">
+                
+                <div id="chips-container" class="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
+                    <span class="text-slate-400 font-medium whitespace-nowrap">Suggestions:</span>
+                    <button onclick="applyChip('What are common reasons for thyroid disease?')" class="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition whitespace-nowrap font-medium">🦋 Thyroid Causes</button>
+                    <button onclick="applyChip('How do I manage a sudden migraine headache?')" class="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition whitespace-nowrap font-medium">🧠 Migraine Management</button>
+                    <button onclick="applyChip('What dietary protocols help manage Diabetes symptoms?')" class="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition whitespace-nowrap font-medium">🥗 Diabetes Diet</button>
+                </div>
+
+                <div class="flex items-center space-x-3">
+                    <input id="user-input" type="text" placeholder="Type your symptoms here..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-sm text-slate-800 focus:outline-none focus:border-teal-500">
+                    <button id="send-btn" onclick="sendMessage()" class="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3.5 rounded-xl font-medium text-sm transition shrink-0">Send</button>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        let currentChatId = null;
+        let chatSessions = JSON.parse(localStorage.getItem('chatSessions')) || {};
+        // Cycle array to simulate active backend thought states
+        const processingPhrases = ["Analyzing your symptoms...", "Processing context records...", "Consulting clinical training layers...", "Formulating healthcare summaries..."];
+
+        window.onload = function() {
+            renderHistoryList();
+            if (Object.keys(chatSessions).length > 0) {
+                const sortedIds = Object.keys(chatSessions).sort((a,b) => b - a);
+                loadChat(sortedIds[0]);
+            } else {
+                createNewChat();
+            }
+        };
+
+        function createNewChat() {
+            currentChatId = Date.now().toString();
+            chatSessions[currentChatId] = {
+                title: "New Conversation",
+                messages: [
+                    { content: "Hello! Describe your symptoms or ask a medical question.", isUser: false, isVerified: false }
+                ]
+            };
+            saveToStorage();
+            renderHistoryList();
+            displayCurrentChat();
+            document.getElementById('chips-container').classList.remove('hidden');
+        }
+
+        function saveToStorage() {
+            localStorage.setItem('chatSessions', JSON.stringify(chatSessions));
+        }
+
+        function applyChip(promptText) {
+            document.getElementById('user-input').value = promptText;
+            sendMessage();
+        }
+
+        function renderHistoryList() {
+            const historyList = document.getElementById('history-list');
+            historyList.innerHTML = '';
+            const sortedIds = Object.keys(chatSessions).sort((a,b) => b - a);
+            
+            sortedIds.forEach(id => {
+                const chat = chatSessions[id];
+                const container = document.createElement('div');
+                const isActive = id === currentChatId;
+                
+                container.className = `group relative flex items-center justify-between rounded-lg transition overflow-hidden ${
+                    isActive ? 'bg-slate-800 text-white font-medium border-l-4 border-teal-500' : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+                }`;
+                
+                const mainBtn = document.createElement('button');
+                mainBtn.className = "flex-1 text-left px-3 py-2.5 text-sm truncate flex items-center space-x-2 pr-10";
+                mainBtn.innerHTML = `<span>💬</span> <span class="truncate">${chat.title}</span>`;
+                mainBtn.onclick = () => loadChat(id);
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = "absolute right-2 opacity-0 group-hover:opacity-100 hover:bg-slate-700 p-1.5 rounded-md transition text-slate-400 hover:text-rose-400 text-xs flex items-center justify-center";
+                deleteBtn.innerHTML = "🗑️";
+                
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation(); 
+                    deleteChat(id);
+                };
+                
+                container.appendChild(mainBtn);
+                container.appendChild(deleteBtn);
+                historyList.appendChild(container);
+            });
+        }
+
+        function deleteChat(idToDelete) {
+            if (!confirm("Are you sure you want to delete this conversation?")) return;
+            delete chatSessions[idToDelete];
+            saveToStorage();
+
+            if (currentChatId === idToDelete) {
+                const remainingIds = Object.keys(chatSessions).sort((a,b) => b - a);
+                if (remainingIds.length > 0) {
+                    loadChat(remainingIds[0]);
+                } else {
+                    createNewChat();
+                }
+            } else {
+                renderHistoryList();
+            }
+        }
+
+        function loadChat(id) {
+            currentChatId = id;
+            renderHistoryList();
+            displayCurrentChat();
+            
+            // Hide selection suggestion chips if conversation is already mature
+            if(chatSessions[currentChatId].messages.length > 1) {
+                document.getElementById('chips-container').classList.add('hidden');
+            } else {
+                document.getElementById('chips-container').classList.remove('hidden');
+            }
+        }
+
+        function displayCurrentChat() {
+            const chatBox = document.getElementById('chat-box');
+            chatBox.innerHTML = '';
+            chatSessions[currentChatId].messages.forEach(msg => {
+                appendBubbleToDOM(msg.content, msg.isUser, msg.isVerified);
+            });
+        }
+
+        function appendBubbleToDOM(content, isUser, isVerified = false) {
+            const chatBox = document.getElementById('chat-box');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = isUser ? "flex items-start space-x-3 max-w-[85%] ml-auto flex-row-reverse space-x-reverse shrink-0" : "flex items-start space-x-3 max-w-[85%] shrink-0";
+            
+            const formattedContent = isUser ? content : marked.parse(content);
+            
+            let innerHTML = '';
+            if(isUser) {
+                innerHTML = `<div class="h-8 w-8 rounded-full bg-slate-800 flex items-center justify-center text-white font-bold text-sm shrink-0">ME</div>
+                             <div class="bg-teal-600 text-white p-4 rounded-2xl rounded-tr-none text-sm shadow-sm">${formattedContent}</div>`;
+            } else {
+                innerHTML = `<div class="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold text-sm shrink-0">AI</div>
+                             <div class="space-y-2 flex-1">
+                                 ${isVerified ? '<div class="bg-emerald-50 border border-emerald-200 text-emerald-800 px-2 py-1 rounded-lg text-xs font-semibold inline-block">🛡️ Verified Clinical Guideline Applied</div>' : ''}
+                                 <div class="bg-white border border-slate-200 p-4 rounded-2xl rounded-tl-none text-sm text-slate-700 shadow-sm prose">${formattedContent}</div>
+                             </div>`;
+            }
+            msgDiv.innerHTML = innerHTML;
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return msgDiv;
+        }
+
+        // 1 & 3. UPDATED: HANDLES STREAMING INTERACTION PIPELINES
+        async function sendMessage() {
+            const inputField = document.getElementById('user-input');
+            const sendBtn = document.getElementById('send-btn');
+            const message = inputField.value.trim();
+            if (!message) return;
+
+            document.getElementById('chips-container').classList.add('hidden');
+
+            if (chatSessions[currentChatId].title === "New Conversation") {
+                chatSessions[currentChatId].title = message;
+            }
+
+            const historicalTimeline = [...chatSessions[currentChatId].messages];
+            chatSessions[currentChatId].messages.push({ content: message, isUser: true, isVerified: false });
+            appendBubbleToDOM(message, true);
+            
+            inputField.value = '';
+            inputField.disabled = true;
+            sendBtn.disabled = true;
+            saveToStorage();
+            renderHistoryList();
+
+            // FEATURE 1: SHOW THE STATUS INDICATOR WHILE BACKEND INITIALIZES
+            const chatBox = document.getElementById('chat-box');
+            const statusDiv = document.createElement('div');
+            statusDiv.className = "flex items-center space-x-2 text-slate-400 text-xs italic font-medium py-2 animate-pulse";
+            statusDiv.innerHTML = `<span>⏳</span> <span id="phrase-target">${processingPhrases[0]}</span>`;
+            chatBox.appendChild(statusDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            // Rotate phrases dynamically every 1.5 seconds to feel advanced
+            let phraseIdx = 0;
+            const phraseTimer = setInterval(() => {
+                phraseIdx = (phraseIdx + 1) % processingPhrases.length;
+                const target = document.getElementById('phrase-target');
+                if (target) target.innerText = processingPhrases[phraseIdx];
+            }, 1500);
+
+            try {
+                // Initialize modern POST pipeline transaction mapping connection stream
+                const response = await fetch('http://127.0.0.1:8000/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message, history: historicalTimeline })
+                });
+
+                // Strip the pulse processing tracker elements away
+                clearInterval(phraseTimer);
+                statusDiv.remove();
+
+                // FEATURE 3: CHATGPT-STYLE TEXT STREAM RENDERING
+                // Mount an empty AI chat bubble node to dump words into continuously
+                let isVerifiedApplied = false;
+                let accumulatedAIResponseText = "";
+                
+                const aiBubbleNode = appendBubbleToDOM("", false, false);
+                const proseContainerElement = aiBubbleNode.querySelector('.prose');
+                const headerStackContainer = aiBubbleNode.querySelector('.space-y-2');
+
+                // Read incoming stream line blocks
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    
+                    // Leave the last partial line string in buffer track
+                    buffer = lines.pop(); 
+
+                    for (const line of lines) {
+                        const cleanLine = line.trim();
+                        if (!cleanLine) continue;
+
+                        // Check metadata blocks sent from server
+                        if (cleanLine.startsWith("event: metadata")) continue;
+                        if (cleanLine.startsWith("data: verified")) {
+                            isVerifiedApplied = true;
+                            // Add badge to header dynamically
+                            const badge = document.createElement('div');
+                            badge.className = "bg-emerald-50 border border-emerald-200 text-emerald-800 px-2 py-1 rounded-lg text-xs font-semibold inline-block";
+                            badge.innerHTML = "🛡️ Verified Clinical Guideline Applied";
+                            headerStackContainer.insertBefore(badge, proseContainerElement);
+                            continue;
+                        }
+                        if (cleanLine.startsWith("data: unverified")) continue;
+
+                        // Capture word message data blocks
+                        // Capture word message data blocks
+if (cleanLine.startsWith("data:")) {
+    const rawWordChunkText = cleanLine.replace("data:", "").trimStart();
+    accumulatedAIResponseText += rawWordChunkText;
+    
+    // HACKATHON SAFEGUARD: Force semicolons or periods followed by spaces into crisp bullet points if Gemini slips up
+    let processedText = accumulatedAIResponseText;
+    if (!processedText.includes('*') && processedText.includes('. ')) {
+        // Automatically splits sentences into markdown pointers if the model forgets them
+        processedText = processedText.replace(/\. /g, ".\n* ");
+    }
+    
+    // Re-parse Markdown chunks live onto screen node!
+    proseContainerElement.innerHTML = marked.parse(processedText);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+                    }
+                }
+
+                // Finalize streaming transaction cache records
+                chatSessions[currentChatId].messages.push({ 
+                    content: accumulatedAIResponseText, 
+                    isUser: false, 
+                    isVerified: isVerifiedApplied 
+                });
+                saveToStorage();
+
+            } catch (error) {
+                clearInterval(phraseTimer);
+                statusDiv.remove();
+                appendBubbleToDOM("⚠️ Streaming server transaction interrupted. Ensure main.py is operational.", false);
+            } finally {
+                inputField.disabled = false;
+                sendBtn.disabled = false;
+                inputField.focus();
+            }
+        }
+
+        document.getElementById('user-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>
